@@ -574,7 +574,7 @@ class VideoCombine:
                 try:
                     #safely check if audio produced by VHS_LoadVideo actually exists
                     a_waveform = audio['waveform']
-                except:
+                except KeyError:
                     pass
             if a_waveform is not None:
                 # Create audio file if input was provided

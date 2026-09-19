@@ -229,13 +229,25 @@ def get_audio(file, start_time=0, duration=0):
         args += ["-t", str(duration)]
     try:
         #TODO: scan for sample rate and maintain
-        res =  subprocess.run(args + ["-f", "f32le", "-"],
+        res =  subprocess.run(args + ["-vn", "-sn", "-dn", "-f", "f32le", "-"],
                               capture_output=True, check=True)
-        audio = torch.frombuffer(bytearray(res.stdout), dtype=torch.float32)
+        # A valid audio stream can produce no samples after trimming.
+        audio = (torch.frombuffer(bytearray(res.stdout), dtype=torch.float32)
+                 if res.stdout else torch.empty(0, dtype=torch.float32))
         match = re.search(', (\\d+) Hz, (\\w+), ',res.stderr.decode(*ENCODE_ARGS))
     except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode(*ENCODE_ARGS)
+        # FFmpeg cannot create an audio-only output for a video-only input.
+        # Require both a recognized video stream and the specific no-stream
+        # diagnostic; missing files and audio decoder failures must still raise.
+        has_video = re.search(r"Stream #0:\d+[^\r\n]*: Video:", stderr)
+        has_audio = re.search(r"Stream #0:\d+[^\r\n]*: Audio:", stderr)
+        if (has_video and not has_audio
+                and "Output file does not contain any stream" in stderr):
+            # VHS_VideoCombine treats an absent waveform as disabled audio.
+            return {}
         raise Exception(f"VHS failed to extract audio from {file}:\n" \
-                + e.stderr.decode(*ENCODE_ARGS))
+                + stderr) from e
     if match:
         ar = int(match.group(1))
         #NOTE: Just throwing an error for other channel types right now
